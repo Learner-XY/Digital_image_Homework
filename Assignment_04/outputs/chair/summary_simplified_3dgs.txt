@@ -1,0 +1,8 @@
+dataset=data\chair
+num_images=100
+num_gaussians=3000
+num_epochs=20
+final_loss=0.04730738861486316
+total_seconds=780.775
+peak_cuda_memory_mb=2223.539
+loss_history=outputs\chair\checkpoints\loss_history.csv

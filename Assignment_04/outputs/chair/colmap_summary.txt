@@ -1,0 +1,6 @@
+﻿scene=chair
+registered_images=100
+cameras=1
+sparse_points=13490
+projection_images=100
+colmap_env=COLMAP 3.13.0 CUDA

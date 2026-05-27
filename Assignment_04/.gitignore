@@ -1,0 +1,12 @@
+data/chair/database.db
+data/chair/sparse/0/
+data/chair/projections/
+outputs/chair/checkpoints/*.pt
+outputs/chair/checkpoints/*.mp4
+outputs/chair/checkpoints/debug_images/
+outputs/chair/benchmark_checkpoints/
+outputs/chair/test_checkpoints/
+outputs/chair/train.pid
+outputs/official_3dgs/
+*.pyc
+__pycache__/
