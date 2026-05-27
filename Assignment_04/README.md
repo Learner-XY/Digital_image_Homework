@@ -1,40 +1,71 @@
-# Assignment 04: Simplified 3D Gaussian Splatting
+# Assignment 04：简化版 3D Gaussian Splatting 实验报告
 
 席越  
 BZ25001010
 
-This repository contains my implementation of Assignment 04 for Digital Image Processing. The goal is to complete a simplified 3D Gaussian Splatting pipeline on the `chair` scene: reconstruct camera poses and sparse points with COLMAP, implement the core PyTorch Gaussian projection and rasterization functions, train the simplified model, and compare it with the official 3DGS implementation.
+本次作业完成一个简化版 3D Gaussian Splatting 重建流程。实验以 `chair` 数据为主，先使用 COLMAP 完成 SfM 相机位姿与稀疏点云重建，再补全课程骨架代码中的 PyTorch 渲染核心，包括三维高斯协方差构造、相机投影、二维协方差传播、二维高斯响应计算和 alpha blending。最后将简化实现与官方 3DGS 实现从重建质量、训练速度和显存占用三个方面进行对比。
 
 ## Requirements
 
-The experiments were run on the remote Windows GPU machine `gpu4070` under:
+实验在远程 Windows GPU 环境 `gpu4070` 上完成，作业目录为：
 
 ```text
 F:\作业\Digital_image_processing\Digital_image_Homework\Assignment_04
 ```
 
-The simplified code uses:
+简化版代码所需依赖列在 `requirements.txt` 中：
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Main packages are `torch`, `numpy`, `opencv-python`, `natsort`, and `tqdm`. In my remote setup, COLMAP was run in `colmap_env`, while the PyTorch experiments were run in `gdl_env` with CUDA PyTorch 2.6.0/cu124.
+主要 Python 依赖如下：
 
-For the official 3DGS comparison, I used `graphdeco-inria/gaussian-splatting` in the same course workspace. The official CUDA extensions were compiled in `gdl_env` after adding the Conda CUDA 12.4 `nvcc` and building the two extension submodules from a temporary ASCII path to avoid Windows Chinese-path compiler encoding issues.
+| 依赖 | 用途 |
+|---|---|
+| `torch` | 高斯参数优化、张量计算与渲染 |
+| `numpy` | 数值计算 |
+| `opencv-python` | 图像读写与相机投影验证 |
+| `natsort` | 图像文件自然排序 |
+| `tqdm` | 训练进度显示 |
+
+远程环境中实际使用了两个 Conda 环境：
+
+| 环境 | 用途 |
+|---|---|
+| `colmap_env` | 运行 COLMAP 3.13.0，完成 SfM 与稀疏点云重建 |
+| `gdl_env` | 运行 PyTorch 2.6.0/cu124，完成简化 3DGS 训练、渲染和官方 3DGS 对比 |
+
+官方 3DGS 对比实验使用 `graphdeco-inria/gaussian-splatting`。由于 Windows 上系统 CUDA 11.4 与 PyTorch cu124 不匹配，同时中文路径会导致 MSVC/NVCC 生成 `.obj` 文件失败，因此官方 CUDA 扩展采用 Conda CUDA 12.4 的 `nvcc`，并临时复制到纯英文路径 `D:\official_3dgs_build` 下编译。
 
 ## Running
 
-### Task 1: COLMAP reconstruction
+### Task 1：COLMAP 稀疏重建与投影验证
+
+运行 COLMAP 重建：
 
 ```bash
 conda run -n colmap_env python code/mvs_with_colmap.py --data_dir data/chair
+```
+
+运行稀疏点云投影可视化：
+
+```bash
 conda run -n gdl_env python code/debug_mvs_by_projecting_pts.py --data_dir data/chair
 ```
 
-This creates the COLMAP sparse model and projection verification images. The text export is stored in `data/chair/sparse/0_text/`, while the full binary model and all projection frames are treated as generated artifacts.
+输出包括：
 
-### Task 2: Simplified 3DGS training
+| 路径 | 说明 |
+|---|---|
+| `data/chair/sparse/0/` | COLMAP 二进制稀疏重建结果，作为生成文件忽略 |
+| `data/chair/sparse/0_text/` | 导出的相机、图像和点云文本结果 |
+| `data/chair/projections/` | 所有视角的投影验证图，作为生成文件忽略 |
+| `pics/colmap_projection_*.png` | 报告中选取的 4 张投影验证图 |
+
+### Task 2：简化版 3DGS 训练
+
+训练命令如下：
 
 ```bash
 conda run -n gdl_env python code/train.py \
@@ -50,16 +81,21 @@ conda run -n gdl_env python code/train.py \
   --quiet
 ```
 
-The simplified implementation completes the following core parts:
+为了避免 8GB 显存环境中直接构造过大的 `N x H x W` 网格，本实验将初始化高斯数量限制为 3000，并对训练图像使用 `downsample_factor=8`。
 
-- `gaussian_model.py`: normalized quaternion rotation, exponential scale, and 3D covariance construction.
-- `gaussian_renderer.py`: OpenCV/COLMAP camera projection, perspective Jacobian, 3D-to-2D covariance projection, 2D Gaussian evaluation, and front-to-back alpha blending.
-- `data_utils.py`: deterministic PyTorch-only point subsampling instead of PyTorch3D farthest point sampling.
-- `train.py`: fixed seed, point limit, loss CSV, summaries, debug images, and lightweight checkpoint handling.
+核心实现包括：
 
-### Task 3: Official 3DGS comparison
+| 文件 | 实现内容 |
+|---|---|
+| `code/gaussian_model.py` | 使用单位四元数得到旋转矩阵 `R`，使用 `exp(scale)` 得到尺度矩阵 `S`，构造三维协方差 `Cov = (RS)(RS)^T` |
+| `code/gaussian_renderer.py` | 实现 COLMAP/OpenCV 相机投影、透视投影 Jacobian、三维到二维协方差传播、二维 Gaussian 计算和前向 alpha blending |
+| `code/data_utils.py` | 使用纯 PyTorch 随机固定种子采样替代 PyTorch3D 的 farthest point sampling |
+| `code/train.py` | 增加固定随机种子、训练日志、loss CSV、summary、debug image 和轻量化 checkpoint 输出 |
+| `code/smoke_test.py` | 对 covariance、projection、renderer 输出做最小单元验证 |
 
-The official repository was run with the same `chair` COLMAP scene:
+### Task 3：官方 3DGS 对比
+
+官方实现使用同一份 `chair` COLMAP 数据运行 1000 iterations：
 
 ```bash
 python train.py \
@@ -71,7 +107,11 @@ python train.py \
   --checkpoint_iterations 1000 \
   --disable_viewer \
   --quiet
+```
 
+渲染命令如下：
+
+```bash
 python render.py \
   -m F:\作业\Digital_image_processing\Digital_image_Homework\Assignment_04\outputs\official_3dgs\chair_1000 \
   --iteration 1000 \
@@ -79,75 +119,92 @@ python render.py \
   --quiet
 ```
 
-Large official checkpoints and rendered frame directories are not meant to be submitted. I copied one representative render to `pics/official_3dgs_render_1000.png` and kept a lightweight summary in `outputs/official_3dgs_summary.txt`.
+官方完整模型、checkpoint 和完整渲染序列体积较大，不作为提交内容；报告中仅保留 `pics/official_3dgs_render_1000.png` 和轻量文本摘要 `outputs/official_3dgs_summary.txt`。
 
 ## Evaluation
 
-I checked the implementation in three layers:
+本实验从三个层面进行验证：
 
-1. Static completion: no remaining placeholder tokens in the simplified code.
-2. Smoke tests: covariance, projection, 2D Gaussian evaluation, and image rendering return finite tensors with expected shapes.
-3. End-to-end artifacts: COLMAP sparse reconstruction, projected sparse points, simplified training loss/debug renders, and official 3DGS render output.
+1. 静态检查：确认代码和报告中没有残留占位符。
+2. 单元验证：运行 `smoke_test.py` 检查协方差、投影和渲染输出形状正确且没有 NaN。
+3. 端到端验证：确认 COLMAP 重建、投影验证图、简化版训练结果、官方 3DGS 训练和渲染均成功生成。
 
-The main verification command is:
+验证命令：
 
 ```bash
 conda run -n gdl_env python code/smoke_test.py
 ```
 
+实际输出：
+
+```text
+smoke_test: PASS
+```
+
+此外，提交前确认了 README 中引用的所有图片均存在。
+
 ## Results
 
-### COLMAP and projection check
+### Task 1 结果：COLMAP 与稀疏点云投影
 
-COLMAP registered all 100 input images and reconstructed 13,490 sparse 3D points. Reprojected sparse points align with the chair views, which verifies that camera intrinsics/extrinsics are being read consistently before training.
+COLMAP 在 `chair` 数据上成功注册 100 张图像，重建出 13,490 个稀疏三维点。将稀疏点云按照 COLMAP 相机参数重新投影到图像上，可以看到投影点基本覆盖椅子的轮廓和主要结构，说明相机内参、外参和稀疏点云读取正确，可以作为后续 3DGS 初始化。
 
-| Projection 1 | Projection 2 |
+| 投影验证 1 | 投影验证 2 |
 |---|---|
 | ![projection 1](pics/colmap_projection_01.png) | ![projection 2](pics/colmap_projection_02.png) |
 
-| Projection 3 | Projection 4 |
+| 投影验证 3 | 投影验证 4 |
 |---|---|
 | ![projection 3](pics/colmap_projection_03.png) | ![projection 4](pics/colmap_projection_04.png) |
 
-### Simplified 3DGS
+### Task 2 结果：简化版 3DGS
 
-The simplified model was trained with 3,000 Gaussians at `downsample_factor=8`. The loss decreased from about `0.0863` to `0.0473` over 20 epochs.
+简化版模型使用 COLMAP 稀疏点云初始化，并限制为 3000 个 Gaussian。训练 20 个 epoch 后，loss 从约 `0.0863` 下降到 `0.0473`。结果能够恢复出椅子的整体形状和颜色分布，但由于使用纯 PyTorch 的 dense image-grid 渲染，并且没有官方实现中的自适应 densification、tile-based rasterization 和球谐颜色表达，细节和边界仍然较模糊。
 
-| Training loss | Debug render grid |
+| 训练 loss 曲线 | Debug 渲染结果 |
 |---|---|
 | ![loss](pics/training_loss_curve.png) | ![debug render](pics/simplified_3dgs_debug_epoch_0015.png) |
 
-### Official 3DGS
+### Task 3 结果：官方 3DGS
 
-The official implementation ran for 1,000 iterations and produced a denser point cloud with 26,263 Gaussians. The final logged loss was about `0.0256`, and a representative rendered frame is shown below.
+官方 3DGS 在相同 `chair` 数据上运行 1000 iterations，最终记录 loss 约为 `0.0256`，生成的点云包含 26,263 个 Gaussian。相比简化版，官方结果结构更清晰、边界更锐利，椅子的几何轮廓和局部颜色细节更稳定。
 
 ![official render](pics/official_3dgs_render_1000.png)
 
-### Comparison
+### 简化版与官方 3DGS 对比
 
-| Item | Simplified 3DGS | Official 3DGS |
+| 对比项 | 简化版 3DGS | 官方 3DGS |
 |---|---:|---:|
-| Dataset | chair, 100 images | chair, 100 images |
-| Initialization | COLMAP sparse points, capped to 3,000 Gaussians | COLMAP sparse points, adaptive densification |
-| Training length | 20 epochs | 1,000 iterations |
-| Final logged loss | 0.047307 | 0.025645 |
-| Training time | 780.775 s | about 28 s progress time, about 35 s log wall span |
-| Observed GPU memory | 2223.539 MB peak recorded by script | about 1838 MB observed during run |
-| Final Gaussian count | 3,000 | 26,263 |
-| Rendering style | pure PyTorch dense image-grid evaluation | CUDA rasterizer with tiled splatting |
-| Visual quality | recognizable but blurrier and lower resolution | sharper structure, denser geometry, clearer boundaries |
+| 数据集 | `chair`，100 张图像 | `chair`，100 张图像 |
+| 初始化方式 | COLMAP 稀疏点云，固定采样到 3000 个 Gaussian | COLMAP 稀疏点云，自适应 densification |
+| 训练规模 | 20 epochs | 1000 iterations |
+| 最终记录 loss | 0.047307 | 0.025645 |
+| 训练耗时 | 780.775 s | 进度条约 28 s，日志墙钟约 35 s |
+| 记录显存 | 约 2223.539 MB peak | 运行中观测约 1838 MB |
+| 最终 Gaussian 数量 | 3000 | 26263 |
+| 渲染方式 | PyTorch dense `N x H x W` 网格计算 | CUDA tile-based rasterizer |
+| 颜色表达 | 每个 Gaussian 直接优化 RGB | 球谐系数表达视角相关颜色 |
+| 视觉效果 | 能重建整体形状，但较模糊 | 结构更清晰，边缘和纹理更稳定 |
 
-The official implementation is much faster because it uses CUDA rasterization, tile-based rendering, adaptive densification/pruning, spherical harmonics color features, and optimized nearest-neighbor utilities. The simplified implementation is easier to read and useful for understanding the math, but its dense `N x H x W` evaluation is slower and less memory efficient for high resolution rendering.
+官方实现速度和质量明显更好，主要原因有：
+
+1. 官方使用 CUDA rasterizer 和 tile-based splatting，避免在 Python/PyTorch 中显式构造巨大网格。
+2. 官方具有 adaptive densification 和 pruning，可以自动增加高贡献区域的 Gaussian 数量。
+3. 官方使用球谐特征表达视角相关颜色，而简化版只优化基础 RGB。
+4. 官方包含更多工程优化，例如快速 KNN 初始化、可见性裁剪、压缩排序和更高效的 alpha compositing。
+
+简化版虽然效果弱于官方实现，但代码路径更短，更适合理解 3DGS 的数学流程：从三维高斯协方差出发，经相机投影得到二维高斯，再通过深度排序和 alpha blending 合成图像。
 
 ## Notes
 
-- I intentionally do not generate a PDF for this assignment; the submission artifact is this Markdown experiment report.
-- Large checkpoints, full projection folders, official rendered frame folders, and official working logs are generated artifacts and are ignored by Git.
-- The official build was fixed by avoiding two Windows-specific problems: system CUDA 11.4 conflicting with PyTorch cu124, and Chinese source paths breaking MSVC/NVCC object-file generation.
+- 本次提交不生成 PDF，提交物为 Markdown 实验报告式 `README.md`。
+- 大型 checkpoint、官方完整输出、COLMAP database 和完整 projection 文件夹已通过 `.gitignore` 忽略。
+- 官方实现的编译问题已解决：使用 Conda CUDA 12.4 的 `nvcc`，并在纯英文路径中编译 CUDA extension，以绕过 Windows 中文路径导致的对象文件生成失败。
+- 主实验只使用 `chair`，未将 `lego` 作为必交结果。
 
 ## References
 
 - Kerbl et al., 3D Gaussian Splatting for Real-Time Radiance Field Rendering, SIGGRAPH 2023.
-- Official implementation: <https://github.com/graphdeco-inria/gaussian-splatting>
-- Course assignment skeleton: <https://github.com/YudongGuo/DIP-Teaching/tree/main/Assignments/04_3DGS>
-- COLMAP: <https://colmap.github.io/>
+- 官方 3DGS 实现：<https://github.com/graphdeco-inria/gaussian-splatting>
+- 课程作业骨架：<https://github.com/YudongGuo/DIP-Teaching/tree/main/Assignments/04_3DGS>
+- COLMAP 文档：<https://colmap.github.io/>
